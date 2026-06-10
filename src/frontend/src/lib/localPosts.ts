@@ -3,9 +3,10 @@
 // IndexedDB supports hundreds of MB (vs localStorage's ~5MB limit).
 
 const DB_NAME = "smileup_db";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const POSTS_STORE = "posts";
 const META_STORE = "meta"; // key-value store for following map, etc.
+const COMMENTS_STORE = "comments";
 
 const FOLLOWING_KEY = "smileup_following";
 
@@ -14,12 +15,23 @@ export interface StoredPost {
   authorPrincipal: string;
   authorName: string;
   mediaDataUrl: string | null; // base64 data URL for image/video preview
+  mediaBlob?: Blob; // native Blob stored directly in IndexedDB
   mediaType: string; // "text", "image/jpeg", "video/mp4", etc.
   caption: string;
   timestamp: number; // Date.now()
   likeCount: number;
   viewCount: number;
   likedBy: string[]; // array of principal strings who liked
+  destination?: "feed" | "shortsport";
+}
+
+export interface StoredComment {
+  id: string;
+  postId: string;
+  authorPrincipal: string;
+  authorName: string;
+  text: string;
+  timestamp: number; // Date.now() in ms
 }
 
 // ─── IndexedDB helpers ────────────────────────────────────────────────────────
@@ -37,6 +49,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(META_STORE)) {
         db.createObjectStore(META_STORE);
+      }
+      if (!db.objectStoreNames.contains(COMMENTS_STORE)) {
+        db.createObjectStore(COMMENTS_STORE, { keyPath: "id" });
       }
     };
     req.onsuccess = (e) => {
@@ -115,6 +130,51 @@ async function migrateFromLocalStorage(): Promise<void> {
 // Run migration once
 migrateFromLocalStorage();
 
+// ─── Blob URL cache ───────────────────────────────────────────────────────────
+
+const _blobUrlCache = new Map<string, string>();
+const BLOB_URL_CACHE_MAX = 15;
+
+/**
+ * Evict the oldest entry from the blob URL cache, revoking its object URL to
+ * free memory.
+ */
+function _evictOldestBlobUrl(): void {
+  const firstKey = _blobUrlCache.keys().next().value;
+  if (firstKey !== undefined) {
+    const url = _blobUrlCache.get(firstKey);
+    if (url) URL.revokeObjectURL(url);
+    _blobUrlCache.delete(firstKey);
+  }
+}
+
+/**
+ * Revoke all cached blob URLs and clear the cache. Call this when refreshing
+ * the feed so stale URLs are freed from memory.
+ */
+export function clearBlobUrlCache(): void {
+  for (const url of _blobUrlCache.values()) {
+    URL.revokeObjectURL(url);
+  }
+  _blobUrlCache.clear();
+}
+
+/** Get a usable media URL for a post — uses cached blob URL or falls back to dataUrl */
+export function getMediaUrl(post: StoredPost): string | null {
+  if (post.mediaBlob) {
+    const cached = _blobUrlCache.get(post.id);
+    if (cached) return cached;
+    // Enforce cache size limit before adding a new entry
+    if (_blobUrlCache.size >= BLOB_URL_CACHE_MAX) {
+      _evictOldestBlobUrl();
+    }
+    const url = URL.createObjectURL(post.mediaBlob);
+    _blobUrlCache.set(post.id, url);
+    return url;
+  }
+  return post.mediaDataUrl ?? null;
+}
+
 // ─── Post helpers ─────────────────────────────────────────────────────────────
 
 /** Convert a File to a base64 data URL */
@@ -127,187 +187,183 @@ export async function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-/** Generate a unique ID based on timestamp + random suffix */
-function generateId(): string {
+/** Generate a unique ID based on timestamp + random */
+export function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// ─── Public API (async) ────────────────────────────────────────────────────────
+/** Infer destination from post fields for backwards compatibility */
+function inferDestination(p: StoredPost): "feed" | "shortsport" {
+  if (p.destination) return p.destination;
+  return p.mediaType?.startsWith("video") ? "shortsport" : "feed";
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function getAllPostsAsync(): Promise<StoredPost[]> {
   const db = await openDB();
   const t = txn(db, POSTS_STORE, "readonly");
   const store = t.objectStore(POSTS_STORE);
   const posts = await idbGetAll<StoredPost>(store);
-  return posts.sort((a, b) => b.timestamp - a.timestamp);
+  return posts
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .map((p) => ({ ...p, destination: inferDestination(p) }));
 }
 
-export async function getPostsByUserAsync(
-  principalStr: string,
-): Promise<StoredPost[]> {
-  const all = await getAllPostsAsync();
-  return all.filter((p) => p.authorPrincipal === principalStr);
+export async function getPostAsync(
+  id: string,
+): Promise<StoredPost | undefined> {
+  const db = await openDB();
+  const t = txn(db, POSTS_STORE, "readonly");
+  const store = t.objectStore(POSTS_STORE);
+  const p = await idbGet<StoredPost>(store, id);
+  if (!p) return undefined;
+  return { ...p, destination: inferDestination(p) };
 }
 
 export async function createPostAsync(
   post: Omit<StoredPost, "id">,
 ): Promise<StoredPost> {
-  const newPost: StoredPost = { ...post, id: generateId() };
   const db = await openDB();
   const t = txn(db, POSTS_STORE, "readwrite");
   const store = t.objectStore(POSTS_STORE);
+  const newPost: StoredPost = { ...post, id: generateId() };
   await idbPut(store, newPost);
   return newPost;
 }
 
-export async function likePostAsync(
+export async function updatePostAsync(
+  id: string,
+  updates: Partial<StoredPost>,
+): Promise<StoredPost | undefined> {
+  const db = await openDB();
+  const t = txn(db, POSTS_STORE, "readwrite");
+  const store = t.objectStore(POSTS_STORE);
+  const existing = await idbGet<StoredPost>(store, id);
+  if (!existing) return undefined;
+  const updated = { ...existing, ...updates };
+  await idbPut(store, updated);
+  return updated;
+}
+
+export async function deletePostAsync(id: string): Promise<void> {
+  const db = await openDB();
+  const t = txn(db, POSTS_STORE, "readwrite");
+  const store = t.objectStore(POSTS_STORE);
+  await idbDelete(store, id);
+}
+
+// ─── Comment helpers ──────────────────────────────────────────────────────────
+
+export async function getCommentsForPost(
   postId: string,
-  principalStr: string,
+): Promise<StoredComment[]> {
+  const db = await openDB();
+  const t = txn(db, COMMENTS_STORE, "readonly");
+  const store = t.objectStore(COMMENTS_STORE);
+  const all = await idbGetAll<StoredComment>(store);
+  return all
+    .filter((c) => c.postId === postId)
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+export async function addComment(
+  comment: Omit<StoredComment, "id">,
+): Promise<StoredComment> {
+  const db = await openDB();
+  const t = txn(db, COMMENTS_STORE, "readwrite");
+  const store = t.objectStore(COMMENTS_STORE);
+  const newComment: StoredComment = { ...comment, id: generateId() };
+  await idbPut(store, newComment);
+  return newComment;
+}
+
+// ─── Following helpers ────────────────────────────────────────────────────────
+
+export async function getFollowingMap(): Promise<Record<string, boolean>> {
+  const db = await openDB();
+  const t = txn(db, META_STORE, "readonly");
+  const store = t.objectStore(META_STORE);
+  const map = await idbGet<Record<string, boolean>>(store, FOLLOWING_KEY);
+  return map ?? {};
+}
+
+export async function setFollowingMap(
+  map: Record<string, boolean>,
 ): Promise<void> {
   const db = await openDB();
-  const t = txn(db, POSTS_STORE, "readwrite");
-  const store = t.objectStore(POSTS_STORE);
-  const post = await idbGet<StoredPost>(store, postId);
-  if (!post) return;
-  if (!post.likedBy.includes(principalStr)) {
-    post.likedBy = [...post.likedBy, principalStr];
-    post.likeCount = post.likedBy.length;
-    await idbPut(store, post);
-  }
+  const t = txn(db, META_STORE, "readwrite");
+  const store = t.objectStore(META_STORE);
+  await idbPut(store, map, FOLLOWING_KEY);
 }
 
-export async function unlikePostAsync(
-  postId: string,
-  principalStr: string,
-): Promise<void> {
-  const db = await openDB();
-  const t = txn(db, POSTS_STORE, "readwrite");
-  const store = t.objectStore(POSTS_STORE);
-  const post = await idbGet<StoredPost>(store, postId);
-  if (!post) return;
-  post.likedBy = post.likedBy.filter((p) => p !== principalStr);
-  post.likeCount = post.likedBy.length;
-  await idbPut(store, post);
+export async function followUser(principal: string): Promise<void> {
+  const map = await getFollowingMap();
+  map[principal] = true;
+  await setFollowingMap(map);
 }
 
-export async function getLikedPostIdsAsync(
-  principalStr: string,
-): Promise<string[]> {
-  const all = await getAllPostsAsync();
-  return all.filter((p) => p.likedBy.includes(principalStr)).map((p) => p.id);
+export async function unfollowUser(principal: string): Promise<void> {
+  const map = await getFollowingMap();
+  delete map[principal];
+  await setFollowingMap(map);
 }
 
-export async function deletePostAsync(postId: string): Promise<void> {
-  const db = await openDB();
-  const t = txn(db, POSTS_STORE, "readwrite");
-  const store = t.objectStore(POSTS_STORE);
-  await idbDelete(store, postId);
+export async function isFollowing(principal: string): Promise<boolean> {
+  const map = await getFollowingMap();
+  return !!map[principal];
 }
 
-// ─── Following helpers (still uses localStorage for small data) ───────────────
+// ─── User name cache ──────────────────────────────────────────────────────────
 
-function readFollowingMap(): Record<string, string[]> {
+const USER_NAME_KEY = "smileup_usernames";
+
+export function getUserName(principal: string): string | null {
   try {
-    const raw = localStorage.getItem(FOLLOWING_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, string[]>;
+    const raw = localStorage.getItem(USER_NAME_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw) as Record<string, string>;
+    return map[principal] ?? null;
   } catch {
-    return {};
+    return null;
   }
 }
 
-function writeFollowingMap(map: Record<string, string[]>): void {
-  localStorage.setItem(FOLLOWING_KEY, JSON.stringify(map));
-}
-
-/** Returns the list of principals that `followerPrincipal` is following */
-export function getFollowing(followerPrincipal: string): string[] {
-  const map = readFollowingMap();
-  return map[followerPrincipal] ?? [];
-}
-
-export function followUser(
-  followerPrincipal: string,
-  targetPrincipal: string,
-): void {
-  const map = readFollowingMap();
-  const current = map[followerPrincipal] ?? [];
-  if (!current.includes(targetPrincipal)) {
-    map[followerPrincipal] = [...current, targetPrincipal];
-    writeFollowingMap(map);
+export function setUserName(principal: string, name: string): void {
+  try {
+    const raw = localStorage.getItem(USER_NAME_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    map[principal] = name;
+    localStorage.setItem(USER_NAME_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
   }
 }
 
-export function unfollowUser(
-  followerPrincipal: string,
-  targetPrincipal: string,
-): void {
-  const map = readFollowingMap();
-  const current = map[followerPrincipal] ?? [];
-  map[followerPrincipal] = current.filter((p) => p !== targetPrincipal);
-  writeFollowingMap(map);
-}
+// ─── Visit tracking ───────────────────────────────────────────────────────────
 
-/** How many users (from the following map) follow `targetPrincipal` */
-export function getFollowerCount(targetPrincipal: string): number {
-  const map = readFollowingMap();
-  let count = 0;
-  for (const followers of Object.values(map)) {
-    if (followers.includes(targetPrincipal)) count++;
+const VISITED_KEY = "smileup_visited";
+const MAX_VISITED = 2;
+
+export function getRecentlyVisited(): string[] {
+  try {
+    const raw = localStorage.getItem(VISITED_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as string[];
+  } catch {
+    return [];
   }
-  return count;
 }
 
-/** Top N users by follower count */
-export function getTopCreatorPrincipals(
-  limit: number,
-): Array<{ principal: string; followerCount: number }> {
-  const map = readFollowingMap();
-  const counts: Record<string, number> = {};
-
-  for (const followers of Object.values(map)) {
-    for (const f of followers) {
-      counts[f] = (counts[f] ?? 0) + 1;
-    }
+export function recordVisit(principal: string): void {
+  try {
+    const visited = getRecentlyVisited().filter((p) => p !== principal);
+    visited.unshift(principal);
+    localStorage.setItem(
+      VISITED_KEY,
+      JSON.stringify(visited.slice(0, MAX_VISITED)),
+    );
+  } catch {
+    // ignore
   }
-
-  return Object.entries(counts)
-    .map(([principal, followerCount]) => ({ principal, followerCount }))
-    .sort((a, b) => b.followerCount - a.followerCount)
-    .slice(0, limit);
-}
-
-// ─── Legacy sync API (kept for backward compatibility, now async underneath) ──
-// These are used by existing code. They return empty/default values synchronously
-// and trigger async reads. Use the Async versions in new code.
-
-export function getAllPosts(): StoredPost[] {
-  // Sync fallback - returns empty, actual data comes from async hook
-  return [];
-}
-
-export function getPostsByUser(_principalStr: string): StoredPost[] {
-  return [];
-}
-
-export function createPost(post: Omit<StoredPost, "id">): StoredPost {
-  // Fire-and-forget async create
-  createPostAsync(post);
-  return { ...post, id: generateId() };
-}
-
-export function likePost(postId: string, principalStr: string): void {
-  likePostAsync(postId, principalStr);
-}
-
-export function unlikePost(postId: string, principalStr: string): void {
-  unlikePostAsync(postId, principalStr);
-}
-
-export function getLikedPostIds(_principalStr: string): string[] {
-  return [];
-}
-
-export function deletePost(postId: string): void {
-  deletePostAsync(postId);
 }

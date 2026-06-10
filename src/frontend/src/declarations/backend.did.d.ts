@@ -10,7 +10,60 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface Comment {
+  'id' : bigint,
+  'text' : string,
+  'authorName' : string,
+  'mediaUrl' : [] | [string],
+  'timestamp' : bigint,
+  'authorPrincipal' : Principal,
+  'postId' : bigint,
+}
+export interface CommunityPost {
+  'id' : bigint,
+  'content' : string,
+  'authorName' : string,
+  'author' : Principal,
+  'mediaUrl' : string,
+  'timestamp' : bigint,
+  'mediaType' : string,
+}
+export interface ConversationInfo {
+  'lastMessageContent' : string,
+  'lastMessageTimestamp' : bigint,
+  'lastUpdated' : bigint,
+  'unreadCount' : bigint,
+  'otherPrincipal' : Principal,
+}
+export interface CreatorEntry {
+  'principal' : Principal,
+  'followerCount' : bigint,
+  'profile' : UserProfile,
+}
 export type ExternalBlob = Uint8Array;
+export interface Message {
+  'content' : string,
+  'read' : boolean,
+  'recipient' : Principal,
+  'sender' : Principal,
+  'timestamp' : bigint,
+  'postId' : [] | [bigint],
+}
+export interface Post {
+  'id' : bigint,
+  'media' : [] | [ExternalBlob],
+  'duration' : bigint,
+  'likeCount' : bigint,
+  'thumbnailUrl' : [] | [string],
+  'authorName' : string,
+  'mediaUrl' : string,
+  'viewCount' : bigint,
+  'timestamp' : bigint,
+  'caption' : string,
+  'mediaType' : string,
+  'isVideo' : boolean,
+  'authorPrincipal' : Principal,
+}
 export type UserIdentifier = { 'principal' : Principal } |
   { 'handle' : string };
 export interface UserProfile {
@@ -34,46 +87,82 @@ export interface UserProfileInput {
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
-export interface _CaffeineStorageCreateCertificateResult {
+export interface _ImmutableObjectStorageCreateCertificateResult {
   'method' : string,
   'blob_hash' : string,
 }
-export interface _CaffeineStorageRefillInformation {
+export interface _ImmutableObjectStorageRefillInformation {
   'proposed_top_up_amount' : [] | [bigint],
 }
-export interface _CaffeineStorageRefillResult {
+export interface _ImmutableObjectStorageRefillResult {
   'success' : [] | [boolean],
   'topped_up_amount' : [] | [bigint],
 }
 export interface _SERVICE {
-  '_caffeineStorageBlobIsLive' : ActorMethod<[Uint8Array], boolean>,
-  '_caffeineStorageBlobsToDelete' : ActorMethod<[], Array<Uint8Array>>,
-  '_caffeineStorageConfirmBlobDeletion' : ActorMethod<
+  '_immutableObjectStorageBlobsAreLive' : ActorMethod<
+    [Array<Uint8Array>],
+    Array<boolean>
+  >,
+  '_immutableObjectStorageBlobsToDelete' : ActorMethod<[], Array<Uint8Array>>,
+  '_immutableObjectStorageConfirmBlobDeletion' : ActorMethod<
     [Array<Uint8Array>],
     undefined
   >,
-  '_caffeineStorageCreateCertificate' : ActorMethod<
+  '_immutableObjectStorageCreateCertificate' : ActorMethod<
     [string],
-    _CaffeineStorageCreateCertificateResult
+    _ImmutableObjectStorageCreateCertificateResult
   >,
-  '_caffeineStorageRefillCashier' : ActorMethod<
-    [[] | [_CaffeineStorageRefillInformation]],
-    _CaffeineStorageRefillResult
+  '_immutableObjectStorageRefillCashier' : ActorMethod<
+    [[] | [_ImmutableObjectStorageRefillInformation]],
+    _ImmutableObjectStorageRefillResult
   >,
-  '_caffeineStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
-  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  '_immutableObjectStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
+  '_initializeAccessControl' : ActorMethod<[], undefined>,
+  'addComment' : ActorMethod<[bigint, string, [] | [string]], boolean>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'createCommunityPost' : ActorMethod<
+    [Principal, string, string, string],
+    bigint
+  >,
+  'createPublicPost' : ActorMethod<
+    [string, string, string, string, bigint, [] | [string]],
+    bigint
+  >,
   'deleteHandle' : ActorMethod<[string], undefined>,
+  'followUser' : ActorMethod<[Principal], undefined>,
+  'getAllPublicPosts' : ActorMethod<[], Array<Post>>,
+  'getAllPublicVideos' : ActorMethod<[], Array<Post>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getCommentLikes' : ActorMethod<[bigint, bigint], bigint>,
+  'getComments' : ActorMethod<[bigint], Array<Comment>>,
+  'getCommunityPostCount' : ActorMethod<[Principal], bigint>,
+  'getCommunityPosts' : ActorMethod<[Principal], Array<CommunityPost>>,
+  'getConversations' : ActorMethod<[], Array<ConversationInfo>>,
+  'getFollowerCount' : ActorMethod<[Principal], bigint>,
+  'getFollowerList' : ActorMethod<[], Array<Principal>>,
+  'getFollowingList' : ActorMethod<[], Array<Principal>>,
+  'getLikedBy' : ActorMethod<[bigint], Array<Principal>>,
+  'getLikedPosts' : ActorMethod<[Principal], Array<bigint>>,
+  'getMessages' : ActorMethod<[Principal], Array<Message>>,
   'getMyProfile' : ActorMethod<[], UserProfileInput>,
   'getProfile' : ActorMethod<[UserIdentifier], [] | [UserProfileInput]>,
+  'getPublicUserProfile' : ActorMethod<[string], [] | [UserProfile]>,
+  'getSuggestedHashtags' : ActorMethod<[string], Array<string>>,
+  'getTopCreators' : ActorMethod<[bigint], Array<CreatorEntry>>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'likeComment' : ActorMethod<[bigint, bigint], boolean>,
+  'likePost' : ActorMethod<[bigint], boolean>,
   'lookupHandle' : ActorMethod<[Principal], [] | [string]>,
   'lookupPrincipal' : ActorMethod<[string], [] | [Principal]>,
+  'markMessagesRead' : ActorMethod<[Principal], undefined>,
   'registerHandle' : ActorMethod<[string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfileInput], undefined>,
+  'searchByHashtag' : ActorMethod<[string], Array<Post>>,
+  'searchUsers' : ActorMethod<[string], Array<UserProfile>>,
+  'sendMessage' : ActorMethod<[Principal, string, [] | [bigint]], undefined>,
+  'unfollowUser' : ActorMethod<[Principal], undefined>,
   'updateProfile' : ActorMethod<[UserProfileInput], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;

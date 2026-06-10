@@ -1,0 +1,25 @@
+{
+  "overview": "Smileup is a premium social media platform on the Internet Computer featuring a global feed, ShortSport vertical video reels, advanced CapCut-style video editing, real-time messaging, trending creator rankings, channel pages, hashtag search, and a luxury dark UI with gold accents.",
+  "features": [
+    "ShortSport vertical video feed (9:16) with swipe navigation",
+    "Home feed with 16:9 video players and thumbnail previews",
+    "Hashtag system with #tag extraction and search",
+    "Premium trending creator profiles (gold #1, silver #2)",
+    "Like, comment, share, follow, and fullscreen on every video",
+    "Advanced CapCut-style video editor with 50+ transitions",
+    "Real-time messaging with community tabs",
+    "Channel/profile pages with uploadable banners and photos",
+    "Global visibility — all content visible to every visitor",
+    "Two additional Motoko canisters for expanded data capacity"
+  ],
+  "category": "social-media",
+  "tags": [
+    "social-media",
+    "video",
+    "short-form-video",
+    "internet-computer",
+    "motoko",
+    "react"
+  ],
+  "last_updated": "2026-05-01T19:05:36.781Z"
+}

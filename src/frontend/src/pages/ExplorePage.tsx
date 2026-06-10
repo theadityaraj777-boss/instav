@@ -1,10 +1,17 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "@tanstack/react-router";
-import { Grid, Image, Search, Users, Video } from "lucide-react";
-import React, { useState } from "react";
+import { Grid, Hash, Image, Search, Users, Video } from "lucide-react";
+import React, { useRef, useState } from "react";
 import type { UserProfile } from "../backend";
 import AvatarPlaceholder from "../components/AvatarPlaceholder";
-import { type Post, useSearchUsers } from "../hooks/useQueries";
+import {
+  type Post,
+  useGetFeedPosts,
+  useGetShortSportPosts,
+  useGetSuggestedHashtags,
+  useSearchByHashtag,
+  useSearchUsers,
+} from "../hooks/useQueries";
 
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -16,11 +23,47 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
-interface PostThumbnailProps {
-  post: Post;
+/** Render a caption string with tappable #hashtag spans */
+function CaptionWithHashtags({
+  caption,
+  onHashtagClick,
+}: {
+  caption: string;
+  onHashtagClick: (tag: string) => void;
+}) {
+  const parts = caption.split(/(#\w+)/g);
+  return (
+    <span>
+      {parts.map((part, i) => {
+        if (/^#\w+$/.test(part)) {
+          return (
+            <button
+              // biome-ignore lint/suspicious/noArrayIndexKey: static split segments
+              key={i}
+              type="button"
+              className="text-amber-400 hover:text-amber-300 font-semibold transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHashtagClick(part);
+              }}
+            >
+              {part}
+            </button>
+          );
+        }
+        // biome-ignore lint/suspicious/noArrayIndexKey: static split segments
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+      })}
+    </span>
+  );
 }
 
-function PostThumbnail({ post }: PostThumbnailProps) {
+interface PostThumbnailProps {
+  post: Post;
+  onHashtagClick: (tag: string) => void;
+}
+
+function PostThumbnail({ post, onHashtagClick }: PostThumbnailProps) {
   const mediaUrl = post.media?.getDirectURL();
   const isVideo = post.mediaType?.startsWith("video");
 
@@ -45,7 +88,10 @@ function PostThumbnail({ post }: PostThumbnailProps) {
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-surface-2 p-2">
           <span className="text-muted-foreground text-xs text-center line-clamp-3">
-            {post.caption}
+            <CaptionWithHashtags
+              caption={post.caption}
+              onHashtagClick={onHashtagClick}
+            />
           </span>
         </div>
       )}
@@ -105,15 +151,69 @@ function UserResultCard({ user }: UserResultCardProps) {
 
 export default function ExplorePage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"posts" | "users">("posts");
+  const [activeTab, setActiveTab] = useState<"posts" | "users" | "hashtags">(
+    "posts",
+  );
+  const [committedHashtag, setCommittedHashtag] = useState<string | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const debouncedQuery = useDebounce(searchQuery, 400);
+
+  const isHashtagSearch =
+    debouncedQuery.startsWith("#") && debouncedQuery.length > 1;
 
   const { data: userResults = [], isLoading: usersLoading } =
     useSearchUsers(debouncedQuery);
 
-  // Posts are not available in current backend
-  const posts: Post[] = [];
-  const postsLoading = false;
+  // Hashtag suggestions (while typing)
+  const { data: suggestions = [] } = useGetSuggestedHashtags(
+    isHashtagSearch ? debouncedQuery : null,
+  );
+
+  // Hashtag results (after committing)
+  const { data: hashtagPosts = [], isLoading: hashtagLoading } =
+    useSearchByHashtag(committedHashtag);
+
+  // All posts from all users — merged backend + local
+  const { data: feedPosts = [], isLoading: feedLoading } = useGetFeedPosts();
+  const { data: shortPosts = [], isLoading: shortLoading } =
+    useGetShortSportPosts();
+  const posts: Post[] = [...feedPosts, ...shortPosts].sort(
+    (a, b) => Number(b.timestamp) - Number(a.timestamp),
+  );
+  const postsLoading = feedLoading || shortLoading;
+
+  function commitHashtag(tag: string) {
+    const normalised = tag.startsWith("#") ? tag : `#${tag}`;
+    setSearchQuery(normalised);
+    setCommittedHashtag(normalised.replace(/^#/, "").toLowerCase());
+    setActiveTab("hashtags");
+    setShowSuggestions(false);
+    inputRef.current?.blur();
+  }
+
+  function handleHashtagClick(tag: string) {
+    commitHashtag(tag);
+  }
+
+  function handleSearchChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value;
+    setSearchQuery(val);
+    if (val.startsWith("#")) {
+      setShowSuggestions(true);
+      if (activeTab !== "hashtags") setActiveTab("hashtags");
+    } else {
+      setShowSuggestions(false);
+      setCommittedHashtag(null);
+      if (activeTab === "hashtags") setActiveTab("posts");
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && searchQuery.startsWith("#")) {
+      commitHashtag(searchQuery);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -122,18 +222,50 @@ export default function ExplorePage() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
+            ref={inputRef}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search users by handle…"
+            onChange={handleSearchChange}
+            onKeyDown={handleKeyDown}
+            onFocus={() => {
+              if (searchQuery.startsWith("#") && searchQuery.length > 1)
+                setShowSuggestions(true);
+            }}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            placeholder="Search users, or #hashtag…"
+            data-ocid="explore.search_input"
             className="w-full bg-surface-2 border border-border rounded-full pl-9 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-gold-500/40"
           />
+
+          {/* Hashtag suggestions dropdown */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1.5 bg-card border border-amber-500/30 rounded-2xl shadow-lg overflow-hidden z-20">
+              {suggestions.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()} // prevent blur before click
+                  onClick={() => commitHashtag(tag)}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-amber-500/10 transition-colors text-left"
+                  data-ocid="explore.hashtag_suggestion"
+                >
+                  <Hash className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                  <span className="text-amber-400 font-medium">#{tag}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
         <div className="flex gap-1 mt-3">
           <button
             type="button"
-            onClick={() => setActiveTab("posts")}
+            onClick={() => {
+              setActiveTab("posts");
+              setSearchQuery("");
+              setCommittedHashtag(null);
+            }}
+            data-ocid="explore.posts.tab"
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
               activeTab === "posts"
                 ? "bg-gold-500/20 text-gold-400 border border-gold-500/40"
@@ -145,7 +277,11 @@ export default function ExplorePage() {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab("users")}
+            onClick={() => {
+              setActiveTab("users");
+              if (searchQuery.startsWith("#")) setSearchQuery("");
+            }}
+            data-ocid="explore.users.tab"
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
               activeTab === "users"
                 ? "bg-gold-500/20 text-gold-400 border border-gold-500/40"
@@ -155,10 +291,25 @@ export default function ExplorePage() {
             <Users className="w-3.5 h-3.5" />
             Users
           </button>
+          {(activeTab === "hashtags" || committedHashtag) && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("hashtags")}
+              data-ocid="explore.hashtags.tab"
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                activeTab === "hashtags"
+                  ? "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Hash className="w-3.5 h-3.5" />#{committedHashtag ?? "…"}
+            </button>
+          )}
         </div>
       </div>
 
       <div className="px-4 py-4">
+        {/* ── Posts tab ── */}
         {activeTab === "posts" && (
           <div>
             {postsLoading ? (
@@ -170,7 +321,10 @@ export default function ExplorePage() {
                 )}
               </div>
             ) : posts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div
+                className="flex flex-col items-center justify-center py-20 text-center"
+                data-ocid="explore.posts.empty_state"
+              >
                 <Image className="w-12 h-12 text-muted-foreground/30 mb-3" />
                 <p className="text-muted-foreground text-sm">
                   No posts to explore yet
@@ -182,13 +336,18 @@ export default function ExplorePage() {
             ) : (
               <div className="grid grid-cols-3 gap-1">
                 {posts.map((post) => (
-                  <PostThumbnail key={post.id.toString()} post={post} />
+                  <PostThumbnail
+                    key={post.id.toString()}
+                    post={post}
+                    onHashtagClick={handleHashtagClick}
+                  />
                 ))}
               </div>
             )}
           </div>
         )}
 
+        {/* ── Users tab ── */}
         {activeTab === "users" && (
           <div>
             {usersLoading ? (
@@ -209,11 +368,14 @@ export default function ExplorePage() {
                 )}
               </div>
             ) : debouncedQuery && userResults.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div
+                className="flex flex-col items-center justify-center py-20 text-center"
+                data-ocid="explore.users.empty_state"
+              >
                 <Users className="w-12 h-12 text-muted-foreground/30 mb-3" />
                 <p className="text-muted-foreground text-sm">No users found</p>
                 <p className="text-muted-foreground/60 text-xs mt-1">
-                  Try searching by handle
+                  Try searching by name or handle
                 </p>
               </div>
             ) : !debouncedQuery ? (
@@ -223,13 +385,72 @@ export default function ExplorePage() {
                   Search for users
                 </p>
                 <p className="text-muted-foreground/60 text-xs mt-1">
-                  Enter a handle to find people
+                  Enter a name or handle to find people
                 </p>
               </div>
             ) : (
               <div className="space-y-2">
                 {userResults.map((user: UserProfile) => (
                   <UserResultCard key={user.handle} user={user} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Hashtags tab ── */}
+        {activeTab === "hashtags" && (
+          <div>
+            {committedHashtag && (
+              <div className="flex items-center gap-2 mb-4">
+                <Hash className="w-4 h-4 text-amber-400" />
+                <h2 className="text-foreground font-semibold text-sm">
+                  Posts tagged{" "}
+                  <span className="text-amber-400">#{committedHashtag}</span>
+                </h2>
+              </div>
+            )}
+
+            {!committedHashtag ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <Hash className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">
+                  Type a hashtag to search
+                </p>
+                <p className="text-muted-foreground/60 text-xs mt-1">
+                  e.g. #sports, #funny, #music
+                </p>
+              </div>
+            ) : hashtagLoading ? (
+              <div className="grid grid-cols-3 gap-1">
+                {Array.from(
+                  { length: 6 },
+                  (_, i) => `hashtag-skeleton-${i}`,
+                ).map((k) => (
+                  <Skeleton key={k} className="aspect-square rounded-lg" />
+                ))}
+              </div>
+            ) : hashtagPosts.length === 0 ? (
+              <div
+                className="flex flex-col items-center justify-center py-20 text-center"
+                data-ocid="explore.hashtags.empty_state"
+              >
+                <Hash className="w-12 h-12 text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">
+                  No posts with #{committedHashtag} yet
+                </p>
+                <p className="text-muted-foreground/60 text-xs mt-1">
+                  Be the first to post with this hashtag!
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-1">
+                {hashtagPosts.map((post) => (
+                  <PostThumbnail
+                    key={post.id.toString()}
+                    post={post}
+                    onHashtagClick={handleHashtagClick}
+                  />
                 ))}
               </div>
             )}

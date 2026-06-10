@@ -6,9 +6,11 @@ import StoriesRow from "../components/StoriesRow";
 import TrendingProfilesSection from "../components/TrendingProfilesSection";
 import {
   type Post,
-  useGetAllPosts,
+  useGetFeedPosts,
   useGetLikedPosts,
 } from "../hooks/useQueries";
+
+const PAGE_SIZE = 20;
 
 function PostCardSkeleton() {
   return (
@@ -34,14 +36,19 @@ function PostCardSkeleton() {
 }
 
 export default function FeedPage() {
-  const { data: posts = [], isLoading: postsLoading } = useGetAllPosts();
+  const { data: posts = [], isLoading: postsLoading } = useGetFeedPosts();
   const { data: likedPosts = [] } = useGetLikedPosts();
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const likedPostIds = new Set(likedPosts.map((p: Post) => p.id.toString()));
 
   const sortedPosts = [...posts].sort(
     (a, b) => Number(b.timestamp) - Number(a.timestamp),
   );
+
+  // Slice to the current page — prevents loading all posts into DOM at once
+  const visiblePosts = sortedPosts.slice(0, visibleCount);
+  const hasMore = visibleCount < sortedPosts.length;
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -56,7 +63,7 @@ export default function FeedPage() {
             </h1>
           </div>
           <p className="text-muted-foreground text-xs">
-            Stay up to date with the people you shadow
+            Posts from creators across Smileup
           </p>
         </div>
       </div>
@@ -95,18 +102,32 @@ export default function FeedPage() {
             </p>
           </div>
         ) : (
-          sortedPosts.map((post: Post, i) => (
-            <div
-              key={post.id.toString()}
-              className="animate-fade-in"
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              <PostCard
-                post={post}
-                isLiked={likedPostIds.has(post.id.toString())}
-              />
-            </div>
-          ))
+          <>
+            {visiblePosts.map((post: Post, i) => (
+              <div
+                key={post.id.toString()}
+                className="animate-fade-in"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                <PostCard
+                  post={post}
+                  isLiked={likedPostIds.has(post.id.toString())}
+                />
+              </div>
+            ))}
+            {hasMore && (
+              <div className="py-4 flex justify-center">
+                <button
+                  type="button"
+                  data-ocid="feed.load_more_button"
+                  onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                  className="px-6 py-2.5 rounded-full text-sm font-medium border border-border text-muted-foreground hover:text-foreground hover:border-gold-500/50 transition-colors"
+                >
+                  Load more posts
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -1,17 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  CheckCircle,
-  Download,
-  Film,
-  Loader2,
-  Share2,
-  Upload,
-} from "lucide-react";
-import React, { useState } from "react";
+import { Download, Film, Share2 } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 
 interface ExportPanelProps {
   videoClip?: File | null;
@@ -24,6 +16,20 @@ export default function ExportPanel({
 }: ExportPanelProps) {
   const [title, setTitle] = useState(projectName);
   const [description, setDescription] = useState("");
+
+  // Memoize the object URL so it's only created once per videoClip reference,
+  // not on every render. The cleanup effect revokes it when videoClip changes
+  // or the component unmounts.
+  const videoPreviewUrl = useMemo(() => {
+    if (!videoClip) return null;
+    return URL.createObjectURL(videoClip);
+  }, [videoClip]);
+
+  useEffect(() => {
+    return () => {
+      if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    };
+  }, [videoPreviewUrl]);
 
   const handleDownload = () => {
     if (!videoClip) return;
@@ -45,10 +51,10 @@ export default function ExportPanel({
       </div>
 
       {/* Video preview */}
-      {videoClip ? (
+      {videoPreviewUrl ? (
         <div className="rounded-lg overflow-hidden bg-black aspect-video">
           <video
-            src={URL.createObjectURL(videoClip)}
+            src={videoPreviewUrl}
             className="w-full h-full object-contain"
             controls
             muted

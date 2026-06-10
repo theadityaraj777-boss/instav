@@ -2,3 +2,10 @@
 canisters:
   - src/frontend
   - src/backend
+  - src/postsCanister
+  - src/socialCanister
+  - src/dataCanister1
+  - src/dataCanister2
+  - src/dataCanister3
+  - src/dataCanister4
+  - src/dataCanister5

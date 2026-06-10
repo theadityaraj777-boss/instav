@@ -1,0 +1,159 @@
+type _ImmutableObjectStorageRefillResult = 
+ record {
+   success: opt bool;
+   topped_up_amount: opt nat;
+ };
+type _ImmutableObjectStorageRefillInformation = record {
+                                                  proposed_top_up_amount:
+                                                   opt nat;};
+type _ImmutableObjectStorageCreateCertificateResult = 
+ record {
+   blob_hash: text;
+   method: text;
+ };
+type UserRole = 
+ variant {
+   admin;
+   guest;
+   user;
+ };
+type UserProfileInput = 
+ record {
+   bannerImage: opt ExternalBlob;
+   bio: text;
+   handle: text;
+   location: text;
+   name: text;
+   profilePhoto: opt ExternalBlob;
+   username: text;
+ };
+type UserProfile = 
+ record {
+   bannerImage: opt ExternalBlob;
+   bio: text;
+   handle: text;
+   location: text;
+   name: text;
+   profilePhoto: opt ExternalBlob;
+   username: text;
+ };
+type UserIdentifier = 
+ variant {
+   handle: text;
+   "principal": principal;
+ };
+type Post = 
+ record {
+   authorName: text;
+   authorPrincipal: principal;
+   caption: text;
+   duration: nat;
+   id: nat;
+   isVideo: bool;
+   likeCount: nat;
+   media: opt ExternalBlob;
+   mediaType: text;
+   mediaUrl: text;
+   thumbnailUrl: opt text;
+   timestamp: int;
+   viewCount: nat;
+ };
+type Message = 
+ record {
+   content: text;
+   postId: opt nat;
+   read: bool;
+   recipient: principal;
+   sender: principal;
+   timestamp: int;
+ };
+type ExternalBlob = blob;
+type CreatorEntry = 
+ record {
+   followerCount: nat;
+   "principal": principal;
+   profile: UserProfile;
+ };
+type ConversationInfo = 
+ record {
+   lastMessageContent: text;
+   lastMessageTimestamp: int;
+   lastUpdated: int;
+   otherPrincipal: principal;
+   unreadCount: nat;
+ };
+type CommunityPost = 
+ record {
+   author: principal;
+   authorName: text;
+   content: text;
+   id: nat;
+   mediaType: text;
+   mediaUrl: text;
+   timestamp: int;
+ };
+type Comment = 
+ record {
+   authorName: text;
+   authorPrincipal: principal;
+   id: nat;
+   mediaUrl: opt text;
+   postId: nat;
+   "text": text;
+   timestamp: int;
+ };
+service : {
+  _immutableObjectStorageBlobsAreLive: (hashes: vec blob) -> (vec bool) query;
+  _immutableObjectStorageBlobsToDelete: () -> (vec blob) query;
+  _immutableObjectStorageConfirmBlobDeletion: (blobs: vec blob) -> ();
+  _immutableObjectStorageCreateCertificate: (blobHash: text) ->
+   (_ImmutableObjectStorageCreateCertificateResult);
+  _immutableObjectStorageRefillCashier: (refillInformation:
+   opt _ImmutableObjectStorageRefillInformation) ->
+   (_ImmutableObjectStorageRefillResult);
+  _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
+  _initializeAccessControl: () -> ();
+  addComment: (postId: nat, "text": text, mediaUrl: opt text) -> (bool);
+  assignCallerUserRole: (user: principal, role: UserRole) -> ();
+  createCommunityPost: (communityOwnerId: principal, content: text, mediaUrl:
+   text, mediaType: text) -> (nat);
+  createPublicPost: (authorName: text, caption: text, mediaUrl: text,
+   mediaType: text, duration: nat, thumbnailUrl: opt text) -> (nat);
+  deleteHandle: (handle: text) -> ();
+  followUser: (user: principal) -> ();
+  getAllPublicPosts: () -> (vec Post) query;
+  getAllPublicVideos: () -> (vec Post) query;
+  getCallerUserProfile: () -> (opt UserProfile) query;
+  getCallerUserRole: () -> (UserRole) query;
+  getCommentLikes: (postId: nat, commentIndex: nat) -> (nat) query;
+  getComments: (postId: nat) -> (vec Comment) query;
+  getCommunityPostCount: (communityOwnerId: principal) -> (nat) query;
+  getCommunityPosts: (communityOwnerId: principal) ->
+   (vec CommunityPost) query;
+  getConversations: () -> (vec ConversationInfo) query;
+  getFollowerCount: (user: principal) -> (nat) query;
+  getFollowerList: () -> (vec principal) query;
+  getFollowingList: () -> (vec principal) query;
+  getLikedBy: (postId: nat) -> (vec principal) query;
+  getLikedPosts: ("principal": principal) -> (vec nat) query;
+  getMessages: (otherPrincipal: principal) -> (vec Message) query;
+  getMyProfile: () -> (UserProfileInput) query;
+  getProfile: (identifier: UserIdentifier) -> (opt UserProfileInput) query;
+  getPublicUserProfile: (identifier: text) -> (opt UserProfile) query;
+  getSuggestedHashtags: (prefix: text) -> (vec text) query;
+  getTopCreators: (limit: nat) -> (vec CreatorEntry) query;
+  getUserProfile: (user: principal) -> (opt UserProfile) query;
+  isCallerAdmin: () -> (bool) query;
+  likeComment: (postId: nat, commentIndex: nat) -> (bool);
+  likePost: (postId: nat) -> (bool);
+  lookupHandle: ("principal": principal) -> (opt text) query;
+  lookupPrincipal: (handle: text) -> (opt principal) query;
+  markMessagesRead: (otherPrincipal: principal) -> ();
+  registerHandle: (handle: text) -> ();
+  saveCallerUserProfile: (profile: UserProfileInput) -> ();
+  searchByHashtag: (hashtag: text) -> (vec Post) query;
+  searchUsers: (searchTerm: text) -> (vec UserProfile) query;
+  sendMessage: (recipient: principal, content: text, postId: opt nat) -> ();
+  unfollowUser: (user: principal) -> ();
+  updateProfile: (newProfileData: UserProfileInput) -> ();
+}
