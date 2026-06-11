@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
-import { AuthPromptModal } from "./components/AuthPromptModal";
+import AuthPromptModal from "./components/AuthPromptModal";
 
 function App() {
   const [user, setUser] = useState<any>(null);
