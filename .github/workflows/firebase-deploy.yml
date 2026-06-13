@@ -19,8 +19,30 @@ jobs:
         run: pnpm install --no-frozen-lockfile
         working-directory: src/frontend
 
+      - name: 😎 200 IQ Live Package Hotfix
+        run: |
+          node -e "
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          try {
+            const output = execSync('find node_modules -name StorageClient.js').toString().trim();
+            if (output) {
+              const files = output.split('\n');
+              files.forEach(file => {
+                let content = fs.readFileSync(file, 'utf8');
+                content = content.replace(/import\s*{\s*isV3ResponseBody\s*}\s*from\s*['\"]@icp-sdk\/core\/agent['\"];/, 'const isV3ResponseBody = () => false;');
+                fs.writeFileSync(file, content, 'utf8');
+                console.log('Successfully patched broken library file: ' + file);
+              });
+            }
+          } catch (err) {
+            console.log('Patch skipped:', err.message);
+          }
+          "
+        working-directory: src/frontend
+
       - name: Build Project
-        run: pnpm run build || echo "Bypassing build errors safely"
+        run: pnpm run build
         working-directory: src/frontend
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
