@@ -19,33 +19,8 @@ jobs:
         run: pnpm install --no-frozen-lockfile
         working-directory: src/frontend
 
-      - name: 🔓 Unlock & Fix Package (The Real Fix)
-        run: |
-          node -e "
-          const fs = require('fs');
-          const { execSync } = require('child_process');
-          try {
-            const output = execSync('find node_modules -name StorageClient.js').toString().trim();
-            if (output) {
-              const files = output.split('\n');
-              files.forEach(file => {
-                if(!file) return;
-                // 1. PNPM का ताला तोड़ो (Permissions Unlock)
-                fs.chmodSync(file, 0o666);
-                
-                // 2. गड़बड़ वाले कोड को मिटाओ और सही कोड डालो
-                let content = fs.readFileSync(file, 'utf8');
-                content = content.replace(/isV3ResponseBody\s*,?/g, '');
-                content = 'const isV3ResponseBody = () => false;\n' + content;
-                fs.writeFileSync(file, content, 'utf8');
-                console.log('Successfully unlocked and patched: ' + file);
-              });
-            }
-          } catch (err) {
-            console.error('Patch failed:', err);
-            process.exit(1);
-          }
-          "
+      - name: Set Correct Dependency Version
+        run: pnpm add @icp-sdk/core@3.0.0
         working-directory: src/frontend
 
       - name: Build Project
