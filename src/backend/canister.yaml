@@ -6,3 +6,26 @@ build:
       commands:
         - $MOC_PATH --implicit-package core --default-persistent-actors -no-check-ir -E M0236 -E M0235 -E M0223 -E M0237 --actor-idl system-idl --package base $MOTOKO_BASE --package core $MOTOKO_CORE main.mo -o backend.wasm
         - mv backend.wasm "$ICP_WASM_OUTPUT_PATH"
+manifest_version = "0.1.0"
+
+[project]
+name = "backend"
+type = "motoko"
+main = "main.mo"
+
+[build]
+commands = ["mops build", "pnpm bindgen"]
+out = "dist"
+
+[check]
+commands = ["mops check"]
+
+[check.fix]
+commands = ["mops check --fix"]
+[canisters.socialCanister]
+type = "motoko"
+main = "socialCanister.mo"
+
+[canisters.postsCanister]
+type = "motoko"
+main = "postsCanister.mo"
