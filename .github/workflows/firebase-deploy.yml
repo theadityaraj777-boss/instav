@@ -13,11 +13,14 @@ jobs:
           node-version: 20
       - name: Install pnpm globally
         run: npm install -g pnpm
-      - name: Install
+      - name: Install Dependencies
         run: pnpm install --no-frozen-lockfile
         working-directory: src/frontend
-      - name: Build With Error Bypass
-        run: pnpm run build || echo "Bypassing build errors safely"
+      - name: Downgrade ICP SDK to Fix Export Error
+        run: pnpm add @icp-sdk/core@0.0.2 --save-exact
+        working-directory: src/frontend
+      - name: Build Project
+        run: pnpm run build
         working-directory: src/frontend
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
