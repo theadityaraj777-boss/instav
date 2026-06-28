@@ -22,6 +22,12 @@ jobs:
       - name: Build Project
         run: pnpm run build
         working-directory: src/frontend
+        env:
+          DFX_NETWORK: "ic"
+          CANISTER_ID_BACKEND: "6h534-paaaa-aaaad-ae6qq-cai"
+          CANISTER_BACKEND: "6h534-paaaa-aaaad-ae6qq-cai"
+          II_URL: "https://instav-67f.caffeine.xyz"
+          STORAGE_GATEWAY_URL: "https://blob.caffeine.ai"
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
