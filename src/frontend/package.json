@@ -92,5 +92,10 @@
     "three": "^0.176.0",
     "zustand": "~5.0.5",
     "motion": "^12.34.3"
+  },
   }
-  }
+"pnpm": {
+    "overrides": {
+      "@icp-sdk/core": "^4.1.1"
+    }
+}
